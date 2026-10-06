@@ -1,0 +1,38 @@
+name: Build YTGrab
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: macos-14
+            artifact: YTGrab-mac
+          - os: windows-latest
+            artifact: YTGrab-windows
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - run: pyinstaller --noconfirm YTGrab.spec
+
+      - name: Zip Mac app
+        if: runner.os == 'macOS'
+        run: cd dist && ditto -c -k --keepParent YTGrab.app ../YTGrab-mac.zip
+      - name: Zip Windows exe
+        if: runner.os == 'Windows'
+        run: Compress-Archive -Path dist/YTGrab.exe -DestinationPath YTGrab-windows.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}.zip
