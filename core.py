@@ -87,8 +87,19 @@ def build_choices(info: dict) -> list[Choice]:
 
 
 def fetch_info(url: str) -> dict:
-    with yt_dlp.YoutubeDL({**base_options(), "skip_download": True}) as ydl:
-        return ydl.extract_info(url, download=False)
+    last_error: Exception | None = None
+    for clients in CLIENT_FALLBACKS:
+        opts = {**base_options(), "skip_download": True}
+        if clients:
+            opts["extractor_args"] = {"youtube": {"player_client": clients}}
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                return ydl.extract_info(url, download=False)
+        except yt_dlp.utils.DownloadError as e:
+            if not _is_blocked(e):
+                raise
+            last_error = e
+    raise RuntimeError("YouTube refused the request (403). Try again in a few minutes.") from last_error
 
 
 # --------------------------------------------------------------- download ---
@@ -135,7 +146,38 @@ def download(url: str, choice: Choice, out_dir: str,
         elif d["status"] == "finished":
             on_progress(1.0, "Processing (merging / converting)…")
 
-    opts = download_options(choice, out_dir)
-    opts["progress_hooks"] = [hook]
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        ydl.download([url])
+    last_error: Exception | None = None
+    for i, clients in enumerate(CLIENT_FALLBACKS):
+        opts = download_options(choice, out_dir)
+        opts["progress_hooks"] = [hook]
+        if clients:
+            opts["extractor_args"] = {"youtube": {"player_client": clients}}
+        if i and on_progress:
+            on_progress(0.0, f"YouTube blocked that attempt — retrying ({i + 1}/{len(CLIENT_FALLBACKS)})…")
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                ydl.download([url])
+            return
+        except yt_dlp.utils.DownloadError as e:
+            if not _is_blocked(e):
+                raise
+            last_error = e
+    raise RuntimeError(
+        "YouTube refused the download (403) after several tries. "
+        "Try again in a few minutes, or rebuild the app to get the newest downloader."
+    ) from last_error
+
+
+# YouTube regularly blocks one "player client" or another, which shows up as
+# HTTP 403. We try yt-dlp's default first, then a few known-good alternatives.
+CLIENT_FALLBACKS: list[list[str] | None] = [
+    None,                         # yt-dlp's current default
+    ["tv", "web_safari"],
+    ["android", "ios"],
+    ["web_embedded", "mweb"],
+]
+
+
+def _is_blocked(e: Exception) -> bool:
+    msg = str(e)
+    return "403" in msg or "Forbidden" in msg
