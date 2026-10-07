@@ -26,11 +26,12 @@ pyz = PYZ(a.pure)
 
 if sys.platform == "darwin":
     exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="YTGrab",
-              console=False, upx=False)
+              console=False, upx=False, icon="icon/YTGrab.icns")
     coll = COLLECT(exe, a.binaries, a.datas, name="YTGrab", upx=False)
     app = BUNDLE(coll, name="YTGrab.app", bundle_identifier="com.ytgrab.app",
+                 icon="icon/YTGrab.icns",
                  info_plist={"NSHighResolutionCapable": True})
 else:
     # Windows: one single YTGrab.exe
     exe = EXE(pyz, a.scripts, a.binaries, a.datas, [], name="YTGrab",
-              console=False, upx=False)
+              console=False, upx=False, icon="icon/YTGrab.ico")
