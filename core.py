@@ -4,7 +4,8 @@ from __future__ import annotations
 import os
 import shutil
 import sys
-from dataclasses import dataclass
+import threading
+from dataclasses import dataclass, asdict
 from typing import Callable
 
 import yt_dlp
@@ -55,35 +56,92 @@ def base_options() -> dict:
     return opts
 
 
+# YouTube regularly blocks one "player client" or another, which shows up as
+# HTTP 403. We try yt-dlp's default first, then a few known-good alternatives.
+CLIENT_FALLBACKS: list[list[str] | None] = [
+    None,                         # yt-dlp's current default
+    ["tv", "web_safari"],
+    ["android", "ios"],
+    ["web_embedded", "mweb"],
+]
+
+
+def _is_blocked(e: Exception) -> bool:
+    msg = str(e)
+    return "403" in msg or "Forbidden" in msg
+
+
 # ---------------------------------------------------------------- formats ---
 
 @dataclass
 class Choice:
-    label: str          # what the user sees in the dropdown
-    height: int | None  # None = audio only (MP3)
+    id: str              # "v2160" / "a320"
+    kind: str            # "video" or "audio"
+    title: str           # "2160p" / "MP3 320 kbps"
+    detail: str          # "4K, 60 fps" / "Best quality"
+    size: int | None     # estimated bytes, None if unknown
+    height: int | None = None
+    kbps: int | None = None
 
 
-def _fmt_label(height: int, fps: float | None) -> str:
-    names = {4320: "8K", 2160: "4K", 1440: "2K"}
-    label = f"{height}p"
-    if height in names:
-        label += f" ({names[height]})"
-    if fps and fps > 30:
-        label += f" {int(fps)}fps"
-    return label
+AUDIO_LEVELS = [(320, "Best quality"), (192, "Smaller file"), (128, "Smallest file")]
+NAMED = {4320: "8K", 2160: "4K", 1440: "2K", 1080: "Full HD", 720: "HD"}
+
+
+def _size(f: dict, duration: float | None) -> int | None:
+    s = f.get("filesize") or f.get("filesize_approx")
+    if not s and duration and f.get("tbr"):
+        s = f["tbr"] * 1000 / 8 * duration
+    return int(s) if s else None
 
 
 def build_choices(info: dict) -> list[Choice]:
-    """Every available video resolution, highest first, then MP3 at the end."""
-    best_fps: dict[int, float] = {}
-    for f in info.get("formats") or []:
+    """Every available video resolution (highest first), then MP3 levels."""
+    duration = info.get("duration")
+    formats = info.get("formats") or []
+
+    audio = [f for f in formats if f.get("vcodec") == "none" and f.get("acodec") not in (None, "none")]
+    best_audio = max(audio, key=lambda f: f.get("abr") or f.get("tbr") or 0, default=None)
+    audio_size = _size(best_audio, duration) if best_audio else 0
+
+    by_height: dict[int, dict] = {}
+    for f in formats:
         h = f.get("height")
         if not h or f.get("vcodec") in (None, "none"):
             continue
-        best_fps[h] = max(best_fps.get(h, 0), f.get("fps") or 0)
-    choices = [Choice(_fmt_label(h, best_fps[h]), h) for h in sorted(best_fps, reverse=True)]
-    choices.append(Choice("Audio only (MP3)", None))
+        cur = by_height.get(h)
+        key = (f.get("fps") or 0, f.get("tbr") or 0)
+        if cur is None or key > (cur.get("fps") or 0, cur.get("tbr") or 0):
+            by_height[h] = f
+
+    choices: list[Choice] = []
+    for h in sorted(by_height, reverse=True):
+        f = by_height[h]
+        parts = []
+        if h in NAMED:
+            parts.append(NAMED[h])
+        fps = f.get("fps") or 0
+        if fps > 30:
+            parts.append(f"{int(round(fps))} fps")
+        vsize = _size(f, duration)
+        size = vsize + (audio_size or 0) if vsize else None
+        choices.append(Choice(f"v{h}", "video", f"{h}p", ", ".join(parts), size, height=h))
+
+    for kbps, detail in AUDIO_LEVELS:
+        size = int(kbps * 1000 / 8 * duration) if duration else None
+        choices.append(Choice(f"a{kbps}", "audio", f"MP3 {kbps} kbps", detail, size, kbps=kbps))
     return choices
+
+
+def summarize(info: dict) -> dict:
+    """What the UI needs to show about a video."""
+    return {
+        "title": info.get("title") or "Untitled video",
+        "channel": info.get("channel") or info.get("uploader") or "",
+        "duration": info.get("duration") or 0,
+        "thumbnail": info.get("thumbnail") or "",
+        "choices": [asdict(c) for c in build_choices(info)],
+    }
 
 
 def fetch_info(url: str) -> dict:
@@ -99,85 +157,96 @@ def fetch_info(url: str) -> dict:
             if not _is_blocked(e):
                 raise
             last_error = e
-    raise RuntimeError("YouTube refused the request (403). Try again in a few minutes.") from last_error
+    raise RuntimeError("YouTube refused the request. Wait a minute, then try again.") from last_error
 
 
 # --------------------------------------------------------------- download ---
 
-def download_options(choice: Choice, out_dir: str, mp3_kbps: str = "320") -> dict:
+def download_options(choice: Choice, out_dir: str) -> dict:
     opts = base_options()
-    opts["outtmpl"] = os.path.join(out_dir, "%(title)s [%(height)sp].%(ext)s")
-    if choice.height is None:
+    if choice.kind == "audio":
         opts["outtmpl"] = os.path.join(out_dir, "%(title)s.%(ext)s")
         opts["format"] = "bestaudio/best"
         opts["postprocessors"] = [{
             "key": "FFmpegExtractAudio",
             "preferredcodec": "mp3",
-            "preferredquality": mp3_kbps,
+            "preferredquality": str(choice.kbps or 320),
         }, {"key": "FFmpegMetadata"}]
     else:
         h = choice.height
+        opts["outtmpl"] = os.path.join(out_dir, "%(title)s [%(height)sp].%(ext)s")
         # Exact height first; fall back to the best at or below it.
         opts["format"] = (
             f"bv*[height={h}]+ba/b[height={h}]/"
             f"bv*[height<={h}]+ba/b[height<={h}]"
         )
-        # MP4 plays everywhere (QuickTime, Windows Photos, editing software).
-        # 4K/8K often only exists as VP9/AV1, which yt-dlp re-wraps into MKV if MP4 can't hold it.
+        # MP4 plays everywhere. 4K/8K is often VP9/AV1 only, which goes into MKV.
         opts["merge_output_format"] = "mp4/mkv"
         opts["format_sort"] = ["res", "fps", "vcodec:h264", "acodec:m4a"] if h <= 1080 else ["res", "fps"]
     return opts
 
 
+class Cancelled(Exception):
+    pass
+
+
 def download(url: str, choice: Choice, out_dir: str,
-             on_progress: Callable[[float, str], None] | None = None) -> None:
-    """Runs the download. on_progress(fraction 0..1, status text)."""
+             on_progress: Callable[[dict], None] | None = None,
+             cancel: threading.Event | None = None) -> str:
+    """Runs the download and returns the saved file's path.
+
+    on_progress gets {"phase", "fraction" (0..1, whole job), "speed", "eta"}.
+    Video jobs download two streams (picture, then sound), weighted 90/10.
+    """
+    weights = [0.9, 0.1] if choice.kind == "video" else [1.0]
+    state = {"stage": 0}
+
+    def emit(**kw) -> None:
+        if on_progress:
+            on_progress(kw)
 
     def hook(d: dict) -> None:
-        if not on_progress:
-            return
+        if cancel and cancel.is_set():
+            raise yt_dlp.utils.DownloadCancelled("Cancelled")
+        stage = min(state["stage"], len(weights) - 1)
+        done_before = sum(weights[:stage])
         if d["status"] == "downloading":
             total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
-            done = d.get("downloaded_bytes") or 0
-            frac = done / total if total else 0.0
-            speed = d.get("_speed_str", "").strip()
-            eta = d.get("_eta_str", "").strip()
-            on_progress(frac, f"Downloading… {frac*100:.0f}%  {speed}  ETA {eta}".strip())
+            frac = (d.get("downloaded_bytes") or 0) / total if total else 0.0
+            emit(phase="downloading",
+                 fraction=min(done_before + weights[stage] * frac, 0.99),
+                 speed=d.get("speed"), eta=d.get("eta"))
         elif d["status"] == "finished":
-            on_progress(1.0, "Processing (merging / converting)…")
+            state["stage"] += 1
+            if state["stage"] >= len(weights):
+                emit(phase="finishing", fraction=1.0, speed=None, eta=None)
 
     last_error: Exception | None = None
     for i, clients in enumerate(CLIENT_FALLBACKS):
+        state["stage"] = 0
         opts = download_options(choice, out_dir)
         opts["progress_hooks"] = [hook]
         if clients:
             opts["extractor_args"] = {"youtube": {"player_client": clients}}
-        if i and on_progress:
-            on_progress(0.0, f"YouTube blocked that attempt — retrying ({i + 1}/{len(CLIENT_FALLBACKS)})…")
+        if i:
+            emit(phase="retrying", fraction=0.0, speed=None, eta=None, attempt=i + 1)
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
-                ydl.download([url])
-            return
+                info = ydl.extract_info(url, download=True)
+                return _saved_path(info, ydl)
+        except yt_dlp.utils.DownloadCancelled:
+            raise Cancelled()
         except yt_dlp.utils.DownloadError as e:
+            if cancel and cancel.is_set():
+                raise Cancelled()
             if not _is_blocked(e):
                 raise
             last_error = e
-    raise RuntimeError(
-        "YouTube refused the download (403) after several tries. "
-        "Try again in a few minutes, or rebuild the app to get the newest downloader."
-    ) from last_error
+    raise RuntimeError("YouTube refused the download. Wait a minute, then try again.") from last_error
 
 
-# YouTube regularly blocks one "player client" or another, which shows up as
-# HTTP 403. We try yt-dlp's default first, then a few known-good alternatives.
-CLIENT_FALLBACKS: list[list[str] | None] = [
-    None,                         # yt-dlp's current default
-    ["tv", "web_safari"],
-    ["android", "ios"],
-    ["web_embedded", "mweb"],
-]
-
-
-def _is_blocked(e: Exception) -> bool:
-    msg = str(e)
-    return "403" in msg or "Forbidden" in msg
+def _saved_path(info: dict, ydl: yt_dlp.YoutubeDL) -> str:
+    for d in info.get("requested_downloads") or []:
+        if d.get("filepath"):
+            return d["filepath"]
+    return ydl.prepare_filename(info)

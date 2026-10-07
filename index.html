@@ -1,0 +1,831 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>YTGrab</title>
+<style>
+  :root {
+    --bg: #F4F5F7;
+    --surface: #FFFFFF;
+    --ink: #16171B;
+    --ink-2: #5C606B;
+    --ink-3: #8E929C;
+    --line: #E2E4E9;
+    --wash: rgba(22, 23, 27, 0.055);
+    --wash-2: rgba(22, 23, 27, 0.09);
+    --btn: #16171B;
+    --btn-text: #FFFFFF;
+    --track: #DCDEE3;
+    --ok: #1E9E5A;
+    --bad: #C2372F;
+    --ring: rgba(22, 23, 27, 0.55);
+    --ambient-opacity: 0.6;
+    --pill-shadow: 0 1px 2px rgba(0,0,0,.08), 0 2px 8px rgba(0,0,0,.05);
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1C1D21;
+      --surface: #2A2C32;
+      --ink: #F2F3F5;
+      --ink-2: #A9ADB6;
+      --ink-3: #737781;
+      --line: #36383F;
+      --wash: rgba(255, 255, 255, 0.06);
+      --wash-2: rgba(255, 255, 255, 0.1);
+      --btn: #F2F3F5;
+      --btn-text: #16171B;
+      --track: #3A3C43;
+      --ok: #43C483;
+      --bad: #F07468;
+      --ring: rgba(242, 243, 245, 0.6);
+      --ambient-opacity: 0.42;
+      --pill-shadow: 0 1px 2px rgba(0,0,0,.4);
+      color-scheme: dark;
+    }
+  }
+
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+    -webkit-user-select: none;
+    user-select: none;
+    overflow: hidden;
+    cursor: default;
+  }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+  :focus { outline: none; }
+  :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* ------------------------------------------------------------ frame */
+  .app {
+    position: relative;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: 20px 22px 22px;
+    isolation: isolate;
+  }
+
+  /* The video's own colours, blurred, fill the top of the window. */
+  .ambient {
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 440px;
+    z-index: -1;
+    overflow: hidden;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity .9s ease;
+    -webkit-mask-image: linear-gradient(to bottom, #000 30%, transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 30%, transparent 100%);
+  }
+  .ambient img {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    filter: blur(56px) saturate(1.5);
+    transform: scale(1.5);
+  }
+  .app.has-video .ambient { opacity: var(--ambient-opacity); }
+
+  /* ------------------------------------------------------------ link field */
+  .intro { display: none; }
+  .field {
+    position: relative;
+    display: flex;
+    align-items: center;
+    height: 44px;
+    border-radius: 12px;
+    background: var(--surface);
+    box-shadow: 0 0 0 1px var(--line);
+    transition: box-shadow .15s ease;
+  }
+  .field:focus-within { box-shadow: 0 0 0 1.5px var(--ring); }
+  .field input:focus-visible { outline: none; }
+  .field svg { flex: none; margin-left: 14px; color: var(--ink-3); }
+  .field input {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    padding: 0 10px;
+    border: 0;
+    background: transparent;
+    color: var(--ink);
+    font: inherit;
+    font-size: 14px;
+    -webkit-user-select: text;
+    user-select: text;
+  }
+  .field input::placeholder { color: var(--ink-3); }
+  .clear {
+    flex: none;
+    width: 28px; height: 28px;
+    margin-right: 8px;
+    border-radius: 8px;
+    display: grid; place-items: center;
+    color: var(--ink-3);
+    visibility: hidden;
+  }
+  .clear:hover { background: var(--wash); color: var(--ink); }
+  .field.filled .clear { visibility: visible; }
+  .field-error {
+    margin-top: 10px;
+    color: var(--bad);
+    font-size: 13px;
+    min-height: 0;
+  }
+  .field-error:empty { display: none; }
+
+  /* Empty state: the field sits in the middle of the window. */
+  .app[data-state="empty"] { justify-content: center; padding-bottom: 12vh; }
+  .app[data-state="empty"] .intro { display: block; margin-bottom: 22px; }
+  .app[data-state="empty"] .field { height: 54px; border-radius: 14px; }
+  .app[data-state="empty"] .field input { font-size: 15px; }
+  .intro h1 {
+    font-size: 26px;
+    line-height: 1.15;
+    font-weight: 650;
+    letter-spacing: -0.02em;
+  }
+  .intro p { margin-top: 8px; color: var(--ink-2); font-size: 14px; max-width: 34ch; }
+  .shortcut-hint { margin-top: 14px; color: var(--ink-3); font-size: 12.5px; }
+  .shortcut-hint kbd {
+    font: inherit;
+    padding: 1px 6px;
+    border-radius: 5px;
+    background: var(--wash);
+    color: var(--ink-2);
+  }
+  .app:not([data-state="empty"]) .shortcut-hint { display: none; }
+
+  /* ------------------------------------------------------------ video */
+  .video { display: none; margin-top: 16px; }
+  .app:not([data-state="empty"]) .video { display: block; }
+  .thumb {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    border-radius: 14px;
+    overflow: hidden;
+    background: var(--wash-2);
+    box-shadow: 0 10px 30px -12px rgba(0,0,0,.35);
+  }
+  .thumb img {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    display: block;
+    opacity: 0;
+    transition: opacity .5s ease;
+  }
+  .app.has-video .thumb img { opacity: 1; }
+  .thumb::before {
+    content: ""; position: absolute; inset: 40% 0 0 0; z-index: 1;
+    background: linear-gradient(to bottom, transparent, rgba(0,0,0,.78));
+    opacity: 0; transition: opacity .5s ease;
+  }
+  .app.has-video .thumb::before { opacity: 1; }
+  .duration {
+    position: absolute; z-index: 2;
+    right: 10px; top: 10px;
+    padding: 2px 7px;
+    border-radius: 6px;
+    background: rgba(0,0,0,.72);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .duration:empty { display: none; }
+  .meta {
+    position: absolute; z-index: 2;
+    left: 16px; right: 16px; bottom: 13px;
+    color: #fff;
+    text-shadow: 0 1px 8px rgba(0,0,0,.35);
+  }
+  .title {
+    font-size: 17px;
+    line-height: 1.3;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .channel { margin-top: 2px; color: rgba(255,255,255,.78); font-size: 13px; }
+
+  /* Loading skeleton */
+  .app[data-state="loading"] .thumb::after,
+  .app[data-state="loading"] .title,
+  .app[data-state="loading"] .channel {
+    color: transparent;
+    background: linear-gradient(90deg, var(--wash) 0%, var(--wash-2) 50%, var(--wash) 100%);
+    background-size: 200% 100%;
+    animation: shimmer 1.3s ease-in-out infinite;
+    border-radius: 6px;
+  }
+  .app[data-state="loading"] .thumb::after { content: ""; position: absolute; inset: 0; border-radius: 0; }
+  .app[data-state="loading"] .title,
+  .app[data-state="loading"] .channel { display: none; }
+  @keyframes shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+
+  /* ------------------------------------------------------------ choices */
+  .choose { display: none; flex: 1; min-height: 0; flex-direction: column; margin-top: 16px; }
+  .app[data-state="ready"] .choose,
+  .app[data-state="downloading"] .choose { display: flex; }
+  .app[data-state="loading"] .choose { display: flex; opacity: .35; pointer-events: none; }
+
+  .tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    padding: 3px;
+    border-radius: 10px;
+    background: var(--wash);
+  }
+  .tab {
+    height: 30px;
+    border-radius: 8px;
+    color: var(--ink-2);
+    font-size: 13px;
+    font-weight: 550;
+    transition: background .15s ease, color .15s ease;
+  }
+  .tab[aria-selected="true"] { background: var(--surface); color: var(--ink); box-shadow: var(--pill-shadow); }
+
+  .list {
+    list-style: none;
+    padding: 0;
+    margin: 10px -4px 0;
+    padding: 2px 4px;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .row {
+    display: grid;
+    grid-template-columns: 18px 1fr auto;
+    align-items: center;
+    gap: 12px;
+    min-height: 48px;
+    padding: 0 14px;
+    border-radius: 11px;
+    transition: background .12s ease;
+  }
+  .row:hover { background: var(--wash); }
+  .row[aria-checked="true"] { background: var(--surface); box-shadow: 0 0 0 1.5px var(--ink); }
+  .dot {
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 1.5px var(--ink-3);
+    display: grid; place-items: center;
+  }
+  .row[aria-checked="true"] .dot { box-shadow: inset 0 0 0 1.5px var(--ink); }
+  .row[aria-checked="true"] .dot::after {
+    content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--ink);
+  }
+  .row-name { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+  .row-title { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; white-space: nowrap; }
+  .row-detail { color: var(--ink-2); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row-size { color: var(--ink-3); font-size: 13px; }
+  .list-note { color: var(--ink-3); font-size: 12px; padding: 8px 14px 2px; }
+
+  .app[data-state="downloading"] .tabs,
+  .app[data-state="downloading"] .list,
+  .app[data-state="done"] .tabs,
+  .app[data-state="done"] .list { opacity: .45; pointer-events: none; }
+
+  /* ------------------------------------------------------------ action bar */
+  .bar { display: none; margin-top: 12px; }
+  .app[data-state="ready"] .bar,
+  .app[data-state="downloading"] .bar,
+  .app[data-state="loading"] .bar { display: block; }
+  .app[data-state="loading"] .bar { opacity: .35; pointer-events: none; }
+
+  .folder {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    padding: 2px 0;
+    color: var(--ink-2);
+    font-size: 13px;
+    text-align: left;
+  }
+  .folder strong { color: var(--ink); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .folder .change { margin-left: 8px; color: var(--ink-2); text-decoration: underline; text-underline-offset: 2px; text-decoration-color: var(--ink-3); }
+  .folder:hover .change { color: var(--ink); }
+  .msg:empty { display: none; }
+  .msg:not(:empty) ~ .cancel { margin-left: auto; }
+  .status:has(.msg:not(:empty)) .folder,
+  .app[data-state="downloading"] .folder { display: none; }
+
+  .go {
+    position: relative;
+    width: 100%;
+    height: 52px;
+    border-radius: 14px;
+    background: var(--btn);
+    color: var(--btn-text);
+    font-size: 15px;
+    font-weight: 650;
+    letter-spacing: -0.005em;
+    overflow: hidden;
+    transition: transform .08s ease, background .2s ease;
+  }
+  .go:active { transform: scale(.985); }
+  .go .label, .go .fill-label {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  /* While downloading the button becomes its own progress bar. */
+  .go .fill {
+    position: absolute; inset: 0;
+    background: var(--btn);
+    color: var(--btn-text);
+    clip-path: inset(0 calc(100% - var(--p, 0%)) 0 0);
+    transition: clip-path .35s ease;
+    display: none;
+  }
+  .app[data-state="downloading"] .go { background: var(--track); color: var(--ink); cursor: default; }
+  .app[data-state="downloading"] .go:active { transform: none; }
+  .app[data-state="downloading"] .go .fill { display: block; }
+  .go.finishing .fill { clip-path: inset(0 0 0 0); }
+  .go.finishing .fill::before {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(100deg, transparent 30%, rgba(255,255,255,.18) 50%, transparent 70%);
+    background-size: 200% 100%;
+    animation: shimmer 1.4s linear infinite;
+  }
+
+  .status {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 30px;
+    padding: 8px 2px 0;
+    color: var(--ink-2);
+    font-size: 13px;
+  }
+  .status .msg.bad { color: var(--bad); }
+  .cancel { color: var(--ink-2); font-size: 13px; padding: 4px 6px; border-radius: 6px; display: none; }
+  .cancel:hover { color: var(--ink); background: var(--wash); }
+  .app[data-state="downloading"] .cancel { display: inline-block; }
+
+  /* ------------------------------------------------------------ done */
+  .done { display: none; margin-top: auto; padding-top: 14px; }
+  .app[data-state="done"] .done { display: block; animation: rise .35s cubic-bezier(.2,.8,.2,1); }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  .saved {
+    display: grid;
+    grid-template-columns: 36px 1fr;
+    gap: 12px;
+    align-items: center;
+    padding: 12px 14px;
+    border-radius: 14px;
+    background: var(--surface);
+    box-shadow: 0 0 0 1px var(--line);
+  }
+  .check {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    background: var(--ok);
+    color: #fff;
+    display: grid; place-items: center;
+  }
+  .saved-text { min-width: 0; }
+  .saved-title { font-weight: 650; font-size: 14px; }
+  .saved-file { color: var(--ink-2); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .done-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+  .btn {
+    height: 44px;
+    border-radius: 12px;
+    font-weight: 600;
+    font-size: 14px;
+  }
+  .btn.primary { background: var(--btn); color: var(--btn-text); }
+  .btn.quiet { background: var(--wash); color: var(--ink); }
+  .btn.quiet:hover { background: var(--wash-2); }
+
+  /* ------------------------------------------------------------ drop */
+  .drop {
+    position: absolute; inset: 10px;
+    border-radius: 18px;
+    border: 2px dashed var(--ink-3);
+    background: color-mix(in srgb, var(--bg) 85%, transparent);
+    display: none;
+    place-items: center;
+    font-weight: 600;
+    color: var(--ink-2);
+    z-index: 10;
+  }
+  .app.dragging .drop { display: grid; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<main class="app" id="app" data-state="empty">
+  <div class="ambient" aria-hidden="true"><img id="ambientImg" alt=""></div>
+
+  <div class="intro">
+    <h1>Save any YouTube video</h1>
+    <p>Pick from every quality the video has, up to 8K, or keep just the audio as an MP3.</p>
+  </div>
+
+  <div class="field" id="field">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M6.6 9.4a2.9 2.9 0 0 0 4.1 0l2.2-2.2a2.9 2.9 0 0 0-4.1-4.1l-.9.9M9.4 6.6a2.9 2.9 0 0 0-4.1 0L3.1 8.8a2.9 2.9 0 0 0 4.1 4.1l.9-.9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+    </svg>
+    <input id="url" type="text" placeholder="Paste a YouTube link" spellcheck="false" autocomplete="off" aria-label="YouTube link" autofocus>
+    <button class="clear" id="clear" aria-label="Clear link" title="Clear">
+      <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 3l6 6M9 3L3 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+  <p class="field-error" id="fieldError" role="alert"></p>
+  <p class="shortcut-hint">Press <kbd id="pasteKey">⌘V</kbd> to paste, or drop a link onto this window.</p>
+
+  <section class="video" aria-live="polite">
+    <div class="thumb">
+      <img id="thumb" alt="">
+      <span class="duration num" id="duration"></span>
+      <div class="meta">
+        <h2 class="title" id="title"></h2>
+        <p class="channel" id="channel"></p>
+      </div>
+    </div>
+  </section>
+
+  <section class="choose">
+    <div class="tabs" role="tablist" aria-label="Download type">
+      <button class="tab" role="tab" id="tabVideo" data-kind="video" aria-selected="true">Video</button>
+      <button class="tab" role="tab" id="tabAudio" data-kind="audio" aria-selected="false">Audio</button>
+    </div>
+    <ul class="list" id="list" role="radiogroup" aria-label="Quality"></ul>
+  </section>
+
+  <section class="bar">
+    <button class="go" id="go">
+      <span class="label" id="goLabel">Download</span>
+      <span class="fill" aria-hidden="true"><span class="fill-label" id="fillLabel"></span></span>
+    </button>
+    <div class="status">
+      <button class="folder" id="folder" title="Choose where files are saved">
+        Saves to <strong id="folderName">Downloads</strong><span class="change">Change</span>
+      </button>
+      <span class="msg num" id="msg"></span>
+      <button class="cancel" id="cancel">Cancel</button>
+    </div>
+  </section>
+
+  <section class="done" aria-live="polite">
+    <div class="saved">
+      <div class="check" aria-hidden="true">
+        <svg width="16" height="16" viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <div class="saved-text">
+        <p class="saved-title" id="savedTitle">Saved to Downloads</p>
+        <p class="saved-file" id="savedFile"></p>
+      </div>
+    </div>
+    <div class="done-actions">
+      <button class="btn primary" id="reveal">Show in Finder</button>
+      <button class="btn quiet" id="another">Download another</button>
+    </div>
+  </section>
+
+  <div class="drop" aria-hidden="true">Drop the link to load it</div>
+</main>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const app = $("app");
+  const S = {
+    url: "", video: null, kind: "video",
+    selected: { video: null, audio: "a320" },
+    platform: "darwin", folderName: "Downloads",
+    savedPath: null, request: 0,
+  };
+
+  // ---------------------------------------------------------------- helpers
+  const api = () => window.pywebview && window.pywebview.api;
+  const setState = (s) => { app.dataset.state = s; };
+  const isMac = () => S.platform === "darwin";
+
+  function fmtSize(bytes) {
+    if (!bytes) return "";
+    const mb = bytes / 1e6;
+    if (mb >= 1000) return "≈ " + (mb / 1000).toFixed(mb >= 10000 ? 0 : 1) + " GB";
+    if (mb >= 10) return "≈ " + Math.round(mb) + " MB";
+    return "≈ " + mb.toFixed(1) + " MB";
+  }
+  function fmtTime(s) {
+    s = Math.round(s || 0);
+    if (!s) return "";
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    const mm = h ? String(m).padStart(2, "0") : m;
+    return (h ? h + ":" : "") + mm + ":" + String(sec).padStart(2, "0");
+  }
+  function fmtSpeed(bps) {
+    if (!bps) return "";
+    const mb = bps / 1e6;
+    return mb >= 1 ? mb.toFixed(1) + " MB/s" : Math.round(bps / 1e3) + " KB/s";
+  }
+  function fmtEta(s) {
+    if (s == null) return "";
+    if (s < 60) return "less than a minute left";
+    const m = Math.round(s / 60);
+    return m === 1 ? "about 1 minute left" : `about ${m} minutes left`;
+  }
+  const looksLikeLink = (t) => /^(https?:\/\/)?([\w-]+\.)*(youtube\.com|youtu\.be|youtube-nocookie\.com)\//i.test(t.trim());
+
+  function setMsg(text, bad = false) {
+    $("msg").textContent = text || "";
+    $("msg").classList.toggle("bad", !!bad);
+  }
+  function setGo(text) { $("goLabel").textContent = text; $("fillLabel").textContent = text; }
+  function setProgress(frac) { $("go").style.setProperty("--p", (Math.max(0, Math.min(1, frac)) * 100).toFixed(1) + "%"); }
+
+  // ---------------------------------------------------------------- render
+  function currentChoice() {
+    if (!S.video) return null;
+    const id = S.selected[S.kind];
+    return S.video.choices.find((c) => c.id === id) || null;
+  }
+
+  function renderList() {
+    const list = $("list");
+    list.innerHTML = "";
+    if (!S.video) return;
+    const items = S.video.choices.filter((c) => c.kind === S.kind);
+    items.forEach((c) => {
+      const li = document.createElement("li");
+      li.className = "row";
+      li.setAttribute("role", "radio");
+      li.tabIndex = c.id === S.selected[S.kind] ? 0 : -1;
+      li.setAttribute("aria-checked", String(c.id === S.selected[S.kind]));
+      li.dataset.id = c.id;
+      li.innerHTML = `
+        <span class="dot" aria-hidden="true"></span>
+        <span class="row-name"><span class="row-title num"></span><span class="row-detail"></span></span>
+        <span class="row-size num"></span>`;
+      li.querySelector(".row-title").textContent = c.title;
+      li.querySelector(".row-detail").textContent = c.detail;
+      const size = li.querySelector(".row-size");
+      size.textContent = fmtSize(c.size);
+      if (c.size) size.title = "Estimated file size";
+      li.addEventListener("click", () => select(c.id));
+      list.appendChild(li);
+    });
+    if (S.kind === "video" && items.length && items[0].height > 1080) {
+      const note = document.createElement("li");
+      note.className = "list-note";
+      note.textContent = "Above 1080p usually saves as .mkv. 1080p and below save as .mp4.";
+      list.appendChild(note);
+    }
+  }
+
+  function renderGo() {
+    const c = currentChoice();
+    if (!c) { setGo("Download"); return; }
+    setGo(c.kind === "audio" ? "Download MP3" : `Download ${c.title}`);
+  }
+
+  function renderTabs() {
+    document.querySelectorAll(".tab").forEach((t) => {
+      const on = t.dataset.kind === S.kind;
+      t.setAttribute("aria-selected", String(on));
+      t.tabIndex = on ? 0 : -1;
+    });
+  }
+
+  function select(id) {
+    S.selected[S.kind] = id;
+    renderList();
+    renderGo();
+    const row = $("list").querySelector(`[data-id="${id}"]`);
+    if (row) row.focus({ preventScroll: false });
+  }
+
+  function setKind(kind) {
+    if (S.kind === kind) return;
+    S.kind = kind;
+    renderTabs(); renderList(); renderGo();
+  }
+
+  function showVideo(v) {
+    $("title").textContent = v.title;
+    $("channel").textContent = v.channel;
+    $("duration").textContent = fmtTime(v.duration);
+    const done = () => app.classList.add("has-video");
+    if (v.thumbnail) {
+      $("thumb").onload = done;
+      $("thumb").src = v.thumbnail;
+      $("ambientImg").src = v.thumbnail;
+    }
+  }
+
+  function reset() {
+    S.video = null; S.url = ""; S.request++;
+    $("url").value = "";
+    $("field").classList.remove("filled");
+    $("fieldError").textContent = "";
+    app.classList.remove("has-video");
+    $("thumb").removeAttribute("src");
+    $("ambientImg").removeAttribute("src");
+    setMsg("");
+    setState("empty");
+    $("url").focus();
+  }
+
+  // ---------------------------------------------------------------- actions
+  async function load(raw) {
+    const url = (raw || "").trim();
+    $("fieldError").textContent = "";
+    if (!url) return;
+    if (!looksLikeLink(url)) {
+      $("fieldError").textContent = "That doesn't look like a YouTube link. Copy the address from the video page and paste it again.";
+      return;
+    }
+    if (url === S.url && S.video) return;
+    const req = ++S.request;
+    S.url = url;
+    S.video = null;
+    app.classList.remove("has-video");
+    $("title").textContent = "Loading";
+    $("channel").textContent = "Loading";
+    $("duration").textContent = "";
+    setMsg("");
+    setState("loading");
+    setGo("Looking up video…");
+
+    const res = await api().fetch(url);
+    if (req !== S.request) return; // a newer link was pasted meanwhile
+    if (!res.ok) {
+      S.url = "";
+      setState("empty");
+      $("fieldError").textContent = res.error;
+      return;
+    }
+    S.video = res;
+    const firstVideo = res.choices.find((c) => c.kind === "video");
+    S.selected.video = firstVideo ? firstVideo.id : null;
+    if (!firstVideo) S.kind = "audio";
+    showVideo(res);
+    renderTabs(); renderList(); renderGo();
+    setState("ready");
+  }
+
+  function startDownload() {
+    if (app.dataset.state !== "ready") return;
+    const c = currentChoice();
+    if (!c) return;
+    setProgress(0);
+    $("go").classList.remove("finishing");
+    setGo("Starting…");
+    setMsg("");
+    setState("downloading");
+    api().download(S.url, c.id);
+  }
+
+  // Called from Python
+  window.ytg = {
+    onProgress(p) {
+      if (app.dataset.state !== "downloading") return;
+      const go = $("go");
+      if (p.phase === "downloading") {
+        go.classList.remove("finishing");
+        setProgress(p.fraction);
+        setGo(`Downloading ${Math.floor(p.fraction * 100)}%`);
+        setMsg([fmtSpeed(p.speed), fmtEta(p.eta)].filter(Boolean).join(", "));
+      } else if (p.phase === "finishing") {
+        go.classList.add("finishing");
+        setGo("Finishing up…");
+        setMsg(currentChoice()?.kind === "audio" ? "Converting to MP3" : "Joining picture and sound");
+      } else if (p.phase === "retrying") {
+        go.classList.remove("finishing");
+        setProgress(0);
+        setGo("Trying again…");
+        setMsg(`YouTube blocked that attempt. Trying another way (${p.attempt} of 4).`);
+      }
+    },
+    onDone(r) {
+      S.savedPath = r.path;
+      $("go").classList.remove("finishing");
+      $("savedTitle").textContent = `Saved to ${S.folderName}`;
+      $("savedFile").textContent = r.name;
+      $("savedFile").title = r.path;
+      setState("done");
+      $("reveal").focus();
+    },
+    onError(text) {
+      $("go").classList.remove("finishing");
+      setState(S.video ? "ready" : "empty");
+      renderGo();
+      setMsg(text, true);
+    },
+    onCancelled() {
+      $("go").classList.remove("finishing");
+      setState("ready");
+      renderGo();
+      setMsg("Download cancelled.");
+    },
+  };
+
+  // ---------------------------------------------------------------- events
+  const input = $("url");
+  input.addEventListener("input", () => {
+    $("field").classList.toggle("filled", !!input.value);
+    if (!input.value && app.dataset.state === "empty") $("fieldError").textContent = "";
+  });
+  input.addEventListener("paste", () => setTimeout(() => {
+    $("field").classList.toggle("filled", !!input.value);
+    load(input.value);
+  }, 0));
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") load(input.value); });
+  $("clear").addEventListener("click", reset);
+
+  // Paste anywhere in the window
+  document.addEventListener("paste", (e) => {
+    if (e.target === input) return;
+    if (["downloading"].includes(app.dataset.state)) return;
+    const text = (e.clipboardData || window.clipboardData).getData("text");
+    if (!text) return;
+    e.preventDefault();
+    input.value = text.trim();
+    $("field").classList.add("filled");
+    load(input.value);
+  });
+
+  // Drag a link onto the window
+  let dragDepth = 0;
+  document.addEventListener("dragenter", (e) => { e.preventDefault(); if (app.dataset.state !== "downloading") { dragDepth++; app.classList.add("dragging"); } });
+  document.addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; app.classList.remove("dragging"); } });
+  document.addEventListener("dragover", (e) => e.preventDefault());
+  document.addEventListener("drop", (e) => {
+    e.preventDefault();
+    dragDepth = 0; app.classList.remove("dragging");
+    if (app.dataset.state === "downloading") return;
+    const text = e.dataTransfer.getData("text/uri-list") || e.dataTransfer.getData("text/plain");
+    if (text) { input.value = text.split("\n")[0].trim(); $("field").classList.add("filled"); load(input.value); }
+  });
+
+  document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => setKind(t.dataset.kind)));
+  document.querySelector(".tabs").addEventListener("keydown", (e) => {
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      setKind(S.kind === "video" ? "audio" : "video");
+      document.querySelector(`.tab[data-kind="${S.kind}"]`).focus();
+    }
+  });
+  $("list").addEventListener("keydown", (e) => {
+    const rows = [...$("list").querySelectorAll(".row")];
+    const i = rows.findIndex((r) => r.dataset.id === S.selected[S.kind]);
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      const next = rows[Math.max(0, Math.min(rows.length - 1, i + (e.key === "ArrowDown" ? 1 : -1)))];
+      if (next) select(next.dataset.id);
+    } else if (e.key === "Enter") {
+      startDownload();
+    }
+  });
+
+  $("go").addEventListener("click", startDownload);
+  $("cancel").addEventListener("click", () => { setMsg("Cancelling…"); api().cancel(); });
+  $("folder").addEventListener("click", async () => {
+    const st = await api().choose_folder();
+    S.folderName = st.folderName;
+    $("folderName").textContent = st.folderName;
+    $("folder").title = st.folder;
+  });
+  $("reveal").addEventListener("click", () => S.savedPath && api().reveal(S.savedPath));
+  $("another").addEventListener("click", reset);
+
+  // ---------------------------------------------------------------- start
+  async function init() {
+    const st = await api().get_state();
+    S.platform = st.platform;
+    S.folderName = st.folderName;
+    $("folderName").textContent = st.folderName;
+    $("folder").title = st.folder;
+    $("pasteKey").textContent = isMac() ? "⌘V" : "Ctrl+V";
+    $("reveal").textContent = isMac() ? "Show in Finder" : "Show in folder";
+    if (!st.ffmpeg) $("fieldError").textContent = "A built-in tool (ffmpeg) is missing, so HD video and MP3 won't work. Download the latest version of YTGrab.";
+    input.focus();
+  }
+  if (api()) init(); else window.addEventListener("pywebviewready", init);
+})();
+</script>
+</body>
+</html>

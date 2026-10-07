@@ -1,6 +1,6 @@
 # YTGrab
 
-Paste a YouTube link → pick a quality (highest is selected by default) or **Audio only (MP3)** → Download.
+Paste a YouTube link, pick a quality (the highest is selected by default) or switch to the **Audio** tab for MP3, then click Download.
 
 Works on Mac and Windows. ffmpeg (for merging HD video + audio and making MP3s) and Deno (which YouTube now requires) are bundled inside the app, so users install nothing extra.
 
@@ -16,7 +16,6 @@ pip install -r requirements.txt
 python app.py
 ```
 
-> If you get `No module named '_tkinter'`, run `brew install python-tk` and repeat.
 
 ## 2. Build the real apps (Mac + Windows)
 
@@ -34,14 +33,15 @@ It also rebuilds every Monday with the newest yt-dlp, because YouTube changes of
 
 The app isn't code-signed (that costs money: Apple $99/yr, Windows certificate ~$200+/yr), so:
 
-- **Mac:** right-click YTGrab → **Open** → **Open**. Only needed the first time.
+- **Mac:** open it once, click **Done** on the warning, then go to **System Settings → Privacy & Security** and click **Open Anyway**.
 - **Windows:** on the blue SmartScreen box, click **More info** → **Run anyway**.
 
 ## Files
 
 | File | What it is |
 |---|---|
-| `app.py` | The window (buttons, dropdown, progress bar) |
+| `ui/index.html` | The whole look and feel (layout, colours, animations) |
+| `app.py` | Opens the window and connects the screen to the downloader |
 | `core.py` | The downloading logic (uses yt-dlp) |
 | `YTGrab.spec` | Packaging recipe for PyInstaller |
 | `.github/workflows/build.yml` | Builds Mac + Windows apps on GitHub |
@@ -49,6 +49,7 @@ The app isn't code-signed (that costs money: Apple $99/yr, Windows certificate ~
 ## Notes
 
 - 4K/8K videos usually save as `.mkv` (YouTube only offers those in formats MP4 can't hold). 1080p and below save as `.mp4`.
-- MP3s are 320 kbps. Change `mp3_kbps` in `core.py` if you want smaller files.
+- MP3 comes in 320, 192 or 128 kbps (Audio tab).
+- The app remembers the save folder you pick.
 - If downloads suddenly break: rebuild (Actions → Run workflow) to get the latest yt-dlp.
 - Downloading is against YouTube's Terms of Service except where the uploader allows it. Use it for your own content, Creative Commons videos, or material you have rights to.

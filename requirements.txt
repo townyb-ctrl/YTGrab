@@ -2,5 +2,5 @@ yt-dlp[default]
 yt-dlp-ejs
 deno
 imageio-ffmpeg
-customtkinter
+pywebview
 pyinstaller
