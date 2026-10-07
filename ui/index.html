@@ -449,6 +449,19 @@
   .btn.quiet { background: var(--wash); color: var(--ink); }
   .btn.quiet:hover { background: var(--wash-2); }
 
+  /* ------------------------------------------------------------ credit */
+  .made-for {
+    display: none;
+    position: absolute;
+    left: 22px; bottom: 22px;
+    align-items: center;
+    gap: 8px;
+    color: var(--ink-3);
+    font-size: 12.5px;
+  }
+  .made-for img { display: block; }
+  .app[data-state="empty"] .made-for { display: flex; }
+
   /* ------------------------------------------------------------ drop */
   .drop {
     position: absolute; inset: 10px;
@@ -538,6 +551,11 @@
       <button class="btn quiet" id="another">Download another</button>
     </div>
   </section>
+
+  <p class="made-for">
+    <img src="linkway-mark.png" alt="" width="20" height="20">
+    Made for Linkway Church
+  </p>
 
   <div class="drop" aria-hidden="true">Drop the link to load it</div>
 </main>
