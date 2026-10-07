@@ -788,6 +788,17 @@
       renderGo();
       setMsg(text, true);
     },
+    openLink(url) {
+      if (app.dataset.state === "downloading") {
+        setMsg("Finish or cancel this download, then send the new video again.");
+        return;
+      }
+      input.value = url;
+      $("field").classList.add("filled");
+      if (url === S.url && S.video && app.dataset.state === "ready") return;
+      S.url = "";
+      load(url);
+    },
     onCancelled() {
       $("go").classList.remove("finishing");
       setState("ready");
@@ -873,6 +884,7 @@
     $("folder").title = st.folder;
     $("pasteKey").textContent = isMac() ? "⌘V" : "Ctrl+V";
     $("reveal").textContent = isMac() ? "Show in Finder" : "Show in folder";
+    if (st.pendingLink) window.ytg.openLink(st.pendingLink);
     if (!st.ffmpeg) $("fieldError").textContent = "A built-in tool (ffmpeg) is missing, so HD video and MP3 won't work. Download the latest version of YTGrab.";
     input.focus();
   }

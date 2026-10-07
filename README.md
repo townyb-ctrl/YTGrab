@@ -36,6 +36,20 @@ The app isn't code-signed (that costs money: Apple $99/yr, Windows certificate ~
 - **Mac:** open it once, click **Done** on the warning, then go to **System Settings → Privacy & Security** and click **Open Anyway**.
 - **Windows:** on the blue SmartScreen box, click **More info** → **Run anyway**.
 
+## 4. Chrome button (optional)
+
+Adds a **Download with YTGrab** button to YouTube video pages. Clicking it opens the video in the YTGrab app (and opens the app if it's closed). Works the same on Mac and Windows.
+
+1. Download **YTGrab-chrome-extension** from the build page and unzip it.
+2. In Chrome, go to `chrome://extensions` and turn on **Developer mode** (top right).
+3. Click **Load unpacked** and choose the unzipped folder.
+4. Open YTGrab once, so your computer knows about it.
+
+You can also click the YTGrab icon in Chrome's toolbar, or right-click a video link and choose **Download with YTGrab**.
+The first time, Chrome asks "Open YTGrab?". Tick **Always allow** and click **Open**.
+
+It isn't on the Chrome Web Store, because the store doesn't allow YouTube downloaders.
+
 ## Files
 
 | File | What it is |
@@ -43,6 +57,8 @@ The app isn't code-signed (that costs money: Apple $99/yr, Windows certificate ~
 | `ui/index.html` | The whole look and feel (layout, colours, animations) |
 | `app.py` | Opens the window and connects the screen to the downloader |
 | `core.py` | The downloading logic (uses yt-dlp) |
+| `link_server.py` | Lets the Chrome button hand links to the app |
+| `extension/` | The Chrome extension |
 | `YTGrab.spec` | Packaging recipe for PyInstaller |
 | `.github/workflows/build.yml` | Builds Mac + Windows apps on GitHub |
 

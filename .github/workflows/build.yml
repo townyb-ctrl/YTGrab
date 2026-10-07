@@ -37,3 +37,12 @@ jobs:
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}.zip
+
+  extension:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: YTGrab-chrome-extension
+          path: extension/

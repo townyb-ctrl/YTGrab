@@ -30,7 +30,12 @@ if sys.platform == "darwin":
     coll = COLLECT(exe, a.binaries, a.datas, name="YTGrab", upx=False)
     app = BUNDLE(coll, name="YTGrab.app", bundle_identifier="com.ytgrab.app",
                  icon="icon/YTGrab.icns",
-                 info_plist={"NSHighResolutionCapable": True})
+                 info_plist={
+                     "NSHighResolutionCapable": True,
+                     # lets the Chrome extension open the app with ytgrab:// links
+                     "CFBundleURLTypes": [{"CFBundleURLName": "com.ytgrab.app",
+                                           "CFBundleURLSchemes": ["ytgrab"]}],
+                 })
 else:
     # Windows: one single YTGrab.exe
     exe = EXE(pyz, a.scripts, a.binaries, a.datas, [], name="YTGrab",

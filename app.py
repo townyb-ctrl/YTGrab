@@ -10,11 +10,13 @@ import os
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 import webview
 
 import core
+import link_server
 
 APP_NAME = "YTGrab"
 
@@ -63,8 +65,11 @@ class Api:
     """Every public method here can be called from the page as
     `await pywebview.api.<name>(...)`."""
 
-    def __init__(self) -> None:
+    def __init__(self, first_link: str | None = None) -> None:
         self._window: webview.Window | None = None
+        self._pending_link = first_link      # link to load once the screen is ready
+        self._ui_ready = False
+        self._last_link: tuple[str, float] = ("", 0.0)
         self._choices: dict[str, core.Choice] = {}
         self._cancel = threading.Event()
         s = load_settings()
@@ -76,7 +81,10 @@ class Api:
 
     # -- state
     def get_state(self) -> dict:
+        self._ui_ready = True
+        link, self._pending_link = self._pending_link, None
         return {
+            "pendingLink": link,
             "folder": self._folder,
             "folderName": os.path.basename(self._folder.rstrip("/\\")) or self._folder,
             "platform": sys.platform,
@@ -133,6 +141,37 @@ class Api:
         else:
             subprocess.Popen(["xdg-open", os.path.dirname(path)])
 
+    # -- links sent from the Chrome extension
+    def open_link(self, url: str) -> None:
+        last_url, last_time = self._last_link
+        if url == last_url and time.time() - last_time < 10:
+            return  # same link arrived twice (launch + retry); ignore the repeat
+        self._last_link = (url, time.time())
+        self.bring_to_front()
+        if self._ui_ready:
+            self._js("ytg.openLink", url)
+        else:
+            self._pending_link = url
+
+    def bring_to_front(self) -> None:
+        w = self._window
+        if not w:
+            return
+        try:
+            w.restore()
+            w.show()
+            w.on_top = True
+            threading.Timer(0.4, lambda: setattr(w, "on_top", False)).start()
+        except Exception:
+            pass
+        if sys.platform == "darwin":
+            try:
+                from AppKit import NSApplication
+                from PyObjCTools import AppHelper
+                AppHelper.callAfter(lambda: NSApplication.sharedApplication().activateIgnoringOtherApps_(True))
+            except Exception:
+                pass
+
     def _js(self, fn: str, payload) -> None:
         if self._window:
             self._window.evaluate_js(f"{fn}({json.dumps(payload)})")
@@ -157,7 +196,14 @@ def friendly_error(e: Exception) -> str:
 
 
 def main() -> None:
-    api = Api()
+    first_link = next((l for l in map(link_server.link_from_scheme, sys.argv[1:]) if l), None)
+    api = Api(first_link)
+    link_server.start(api.open_link)
+    if sys.platform == "win32" and getattr(sys, "frozen", False):
+        try:
+            link_server.register_windows_scheme(sys.executable)
+        except Exception:
+            pass
     window = webview.create_window(
         APP_NAME,
         url=resource(os.path.join("ui", "index.html")),
