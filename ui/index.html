@@ -71,13 +71,42 @@
     height: 100%;
     display: flex;
     flex-direction: column;
+    width: 100%;
+    max-width: 560px;
+    margin: 0 auto;
     padding: 20px 22px 22px;
     isolation: isolate;
   }
 
+  /* Wide windows (fullscreen): video on the left, options on the right. */
+  @media (min-width: 900px) {
+    .app:not([data-state="empty"]) {
+      max-width: 1240px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(360px, 400px);
+      grid-template-rows: auto auto minmax(0, max-content) auto 1fr;
+      grid-template-areas:
+        "field field"
+        "err   err"
+        "video choose"
+        "video bar"
+        "video .";
+      column-gap: 36px;
+      padding: 28px 40px 32px;
+    }
+    .app:not([data-state="empty"]) .field { grid-area: field; }
+    .app:not([data-state="empty"]) .field-error { grid-area: err; }
+    .app:not([data-state="empty"]) .video { grid-area: video; align-self: start; margin-top: 22px; }
+    .app:not([data-state="empty"]) .choose { grid-area: choose; margin-top: 22px; }
+    .app:not([data-state="empty"]) .bar { grid-area: bar; }
+    .app[data-state="done"] .done { grid-area: choose; align-self: start; margin-top: 22px; padding-top: 0; }
+    .app:not([data-state="empty"]) .title { font-size: 22px; }
+    .app:not([data-state="empty"]) .meta { left: 22px; right: 22px; bottom: 18px; }
+  }
+
   /* The video's own colours, blurred, fill the top of the window. */
   .ambient {
-    position: absolute;
+    position: fixed;
     inset: 0 0 auto 0;
     height: 440px;
     z-index: -1;
@@ -172,6 +201,9 @@
   .thumb {
     position: relative;
     aspect-ratio: 16 / 9;
+    /* Never taller than the window allows: shrink width to keep 16:9. */
+    width: min(100%, calc((100vh - 150px) * 16 / 9));
+    margin-inline: auto;
     border-radius: 14px;
     overflow: hidden;
     background: var(--wash-2);
